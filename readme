@@ -1,0 +1,4 @@
+activate rb_env command :
+& C:\Users\MSI\anaconda3\shell\condabin\conda-hook.ps1
+conda activate rb_env
+python manage.py runserver

@@ -1,0 +1,6 @@
+name,description
+TVA,"[array(['TVA', 'T.V.A'], dtype='<U5')]"
+FRAIS,"[array(['frais', 'frais généraux'], dtype='<U14')]"
+BANQUE,"[array(['banque', 'bq'], dtype='<U6')]"
+tax_name,"[""new_description"", ""<U15"", ""<U15"", ""new_descript"", ""<U15""]"
+tdddax_name,"[""new_descriddpt"", ""new_ddddescriddpt""]"

@@ -1,0 +1,5 @@
+bank_transaction_id,bank_operation_date,bank_amount,bank_ref,bank_payment_class,bank_label,customer_transaction_id,customer_accounting_date,customer_amount,customer_total_amount,customer_document_number,customer_external_doc_number,customer_payment_type,customer_description,score
+167506,2025-01-29,-350.0,264185,FRS CHQ,RETRAIT CHEQUE TND,121753,2025-01-22,-2770.515,-2770.515,CHP250000115,264189,FRS CHQ,Paiement ChèquesFournisseur,15.0
+167516,2025-01-24,-100000.0,264186,FRS CHQ,REGLEMENT CHEQUE N,121753,2025-01-22,-2770.515,-2770.515,CHP250000115,264189,FRS CHQ,Paiement ChèquesFournisseur,21.25
+167517,2025-01-23,-200000.0,264183,FRS CHQ,REGLEMENT CHEQUE N,121753,2025-01-22,-2770.515,-2770.515,CHP250000115,264189,FRS CHQ,Paiement ChèquesFournisseur,22.5
+167533,2025-01-14,-200000.0,264182,FRS CHQ,REGLEMENT CHEQUE N,121719,2025-01-16,-3000.0,-3000.0,CHP250000114,264184,FRS CHQ,Paiement ChèquesFournisseur,21.25
