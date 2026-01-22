@@ -53,6 +53,19 @@ def get_bank_codes():
     Bank = apps.get_model('rbapp', 'Bank')
     return [bank.code for bank in Bank.objects.all()]
 
+# Helper function to create a view that properly calls ViewSet actions
+def create_action_view(viewset_class, action_name):
+    """Create a view that properly calls a ViewSet action"""
+    def action_view(request, pk):
+        viewset = viewset_class()
+        viewset.request = request
+        viewset.format_kwarg = None
+        viewset.kwargs = {'pk': pk}
+        viewset.action = action_name
+        action_method = getattr(viewset, action_name)
+        return action_method(request, pk=pk)
+    return action_view
+
 # Add nested bank code routes for customer-ledger-entries preprocess
 # These support URLs like /api/1/customer-ledger-entries/{id}/preprocess/
 # The ViewSet's preprocess action will extract the bank code from the path
@@ -60,7 +73,7 @@ for bank_code in get_bank_codes():
     urlpatterns.append(
         path(
             f'api/{bank_code}/customer-ledger-entries/<int:pk>/preprocess/',
-            CustomerLedgerEntryViewSet.as_view({'post': 'preprocess'}),
+            create_action_view(CustomerLedgerEntryViewSet, 'preprocess'),
             name=f'customerledgerentry-preprocess-bank-{bank_code}'
         )
     )
@@ -68,7 +81,7 @@ for bank_code in get_bank_codes():
     urlpatterns.append(
         path(
             f'api/{bank_code}/bank-ledger-entries/<int:pk>/preprocess/',
-            BankLedgerEntryViewSet.as_view({'post': 'preprocess'}),
+            create_action_view(BankLedgerEntryViewSet, 'preprocess'),
             name=f'bankledgerentry-preprocess-bank-{bank_code}'
         )
     )

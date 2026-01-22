@@ -1,0 +1,23 @@
+# Django and Django REST Framework
+Django>=5.2,<6.0
+djangorestframework>=3.14.0
+djangorestframework-simplejwt>=5.3.0
+django-cors-headers>=4.3.0
+
+# Data Processing
+pandas>=2.0.0
+numpy>=1.24.0
+
+# Excel File Processing
+openpyxl>=3.1.0
+xlrd>=2.0.0
+
+# String Matching
+rapidfuzz>=3.0.0
+
+# Database (SQLite is included with Python, but you might need PostgreSQL adapter for production)
+# psycopg2-binary>=2.9.0  # Uncomment if using PostgreSQL
+
+# Pillow for image handling (if you're using ImageField)
+Pillow>=10.0.0
+
