@@ -882,6 +882,133 @@ class STBMatchCustomerBankTransactionsView(APIView):
             }, status=500)
 
 
+class STBManualMatchCustomerBankTransactionsView(APIView):
+    """
+    Manually link a RecoCustomerTransaction to a RecoBankTransaction for STB.
+
+    POST body:
+    {
+        "reco_bank_transaction_id": <int>,
+        "reco_customer_transaction_id": <int>
+    }
+
+    Effect:
+    - Sets RecoCustomerTransaction.matched_bank_transaction to the given RecoBankTransaction.
+    - Propagates the same matched bank transaction (and payment metadata) to all
+      RecoCustomerTransaction rows with the same document_number.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        try:
+            bank_tx_id = request.data.get("reco_bank_transaction_id")
+            cust_tx_id = request.data.get("reco_customer_transaction_id")
+
+            if bank_tx_id is None or cust_tx_id is None:
+                return Response(
+                    {
+                        "error": "reco_bank_transaction_id and reco_customer_transaction_id are required"
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            try:
+                bank_tx_id = int(bank_tx_id)
+                cust_tx_id = int(cust_tx_id)
+            except (TypeError, ValueError):
+                return Response(
+                    {
+                        "error": "reco_bank_transaction_id and reco_customer_transaction_id must be integers"
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            try:
+                bank_tx = RecoBankTransaction.objects.get(id=bank_tx_id)
+            except RecoBankTransaction.DoesNotExist:
+                return Response(
+                    {"error": f"RecoBankTransaction with id={bank_tx_id} not found"},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+            try:
+                cust_tx = RecoCustomerTransaction.objects.get(id=cust_tx_id)
+            except RecoCustomerTransaction.DoesNotExist:
+                return Response(
+                    {"error": f"RecoCustomerTransaction with id={cust_tx_id} not found"},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+            # Link selected customer transaction
+            cust_tx.matched_bank_transaction = bank_tx
+            cust_tx.save()
+
+            # Propagate to same-document customer transactions
+            propagated_count = 0
+            if cust_tx.document_number:
+                related_qs = RecoCustomerTransaction.objects.filter(
+                    document_number=cust_tx.document_number
+                ).exclude(id=cust_tx.id)
+
+                for related in related_qs:
+                    updated = False
+                    if related.matched_bank_transaction_id != bank_tx.id:
+                        related.matched_bank_transaction = bank_tx
+                        updated = True
+
+                    if bank_tx.payment_class and related.payment_type != bank_tx.payment_class.code:
+                        related.payment_type = bank_tx.payment_class.code
+                        updated = True
+                    if bank_tx.payment_status and related.payment_status_id != bank_tx.payment_status_id:
+                        related.payment_status = bank_tx.payment_status
+                        updated = True
+
+                    if updated:
+                        related.save()
+                        propagated_count += 1
+
+            logger.info(
+                f"STBManualMatchCustomerBankTransactionsView: matched customer_tx={cust_tx_id} to bank_tx={bank_tx_id}, "
+                f"propagated_to_same_document={propagated_count}"
+            )
+
+            return Response(
+                {
+                    "message": f"Successfully matched customer transaction {cust_tx_id} to bank transaction {bank_tx_id}",
+                    "reco_bank_transaction_id": bank_tx_id,
+                    "reco_customer_transaction_id": cust_tx_id,
+                    "propagated_to_same_document": propagated_count,
+                    "customer_transaction": {
+                        "id": cust_tx.id,
+                        "document_number": cust_tx.document_number,
+                        "matched_bank_transaction_id": cust_tx.matched_bank_transaction_id,
+                    },
+                    "bank_transaction": {
+                        "id": bank_tx.id,
+                        "bank_id": bank_tx.bank_id,
+                        "bank_ledger_entry_id": bank_tx.bank_ledger_entry_id,
+                        "internal_number": bank_tx.internal_number,
+                        "amount": float(bank_tx.amount),
+                    },
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        except Exception as e:
+            import traceback
+            error_details = traceback.format_exc()
+            logger.error(
+                f"STBManualMatchCustomerBankTransactionsView error: {str(e)}\n{error_details}"
+            )
+            return Response(
+                {
+                    "error": str(e),
+                    "details": error_details,
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
 class STBMatchTransactionView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
@@ -2690,6 +2817,113 @@ class STBTaxComparisonView(APIView):
             'deleted_count': count,
             'method': 'TRUNCATE' if count > 0 else 'N/A'
         }, status=status.HTTP_200_OK)
+
+
+class STBAssignInternalNumberView(APIView):
+    """
+    POST endpoint to assign the same internal_number to multiple bank transactions.
+    Accepts a list of bank transaction IDs and an internal_number.
+    Works with both origine (type='origine') and non-origine transactions.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def post(self, request):
+        try:
+            bank_transaction_ids = request.data.get('bank_transaction_ids', [])
+            internal_number = request.data.get('internal_number')
+            
+            # Validate input
+            if not bank_transaction_ids:
+                return Response(
+                    {"error": "bank_transaction_ids is required and must be a non-empty list"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            if not isinstance(bank_transaction_ids, list):
+                return Response(
+                    {"error": "bank_transaction_ids must be a list"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            if not internal_number:
+                return Response(
+                    {"error": "internal_number is required"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            if not isinstance(internal_number, str) or not internal_number.strip():
+                return Response(
+                    {"error": "internal_number must be a non-empty string"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Clean the internal_number
+            internal_number = internal_number.strip()
+            
+            # Get all requested transactions
+            transactions = RecoBankTransaction.objects.filter(id__in=bank_transaction_ids)
+            found_ids = list(transactions.values_list('id', flat=True))
+            
+            # Check if all IDs exist
+            missing_ids = set(bank_transaction_ids) - set(found_ids)
+            if missing_ids:
+                return Response(
+                    {
+                        "error": f"Some transaction IDs not found: {list(missing_ids)}",
+                        "found_ids": found_ids,
+                        "missing_ids": list(missing_ids)
+                    },
+                    status=status.HTTP_404_NOT_FOUND
+                )
+            
+            # Count origine and non-origine transactions before update
+            origine_count = transactions.filter(type='origine').count()
+            non_origine_count = transactions.exclude(type='origine').count()
+            
+            # Update all transactions with the same internal_number
+            updated_count = transactions.update(internal_number=internal_number)
+            
+            # Log the update
+            logger.info(
+                f"STBAssignInternalNumberView: Assigned internal_number '{internal_number}' to {updated_count} transactions. "
+                f"Origine: {origine_count}, Non-origine: {non_origine_count}"
+            )
+            
+            # Refetch updated transactions to get latest data
+            updated_transactions_list = list(RecoBankTransaction.objects.filter(id__in=found_ids).values(
+                'id', 'type', 'label', 'amount', 'internal_number'
+            ))
+            
+            # Prepare response with details
+            updated_transactions = []
+            for tx_data in updated_transactions_list:
+                updated_transactions.append({
+                    'id': tx_data['id'],
+                    'type': tx_data['type'],
+                    'label': tx_data['label'],
+                    'amount': float(tx_data['amount']),
+                    'internal_number': tx_data['internal_number'],
+                    'is_origine': tx_data['type'] == 'origine'
+                })
+            
+            return Response({
+                'message': f"Successfully assigned internal_number '{internal_number}' to {updated_count} transactions",
+                'updated_count': updated_count,
+                'internal_number': internal_number,
+                'updated_transaction_ids': found_ids,
+                'origine_count': origine_count,
+                'non_origine_count': non_origine_count,
+                'transactions': updated_transactions
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            import traceback
+            error_details = traceback.format_exc()
+            logger.error(f"STBAssignInternalNumberView error: {str(e)}\n{error_details}")
+            return Response({
+                'error': str(e),
+                'details': error_details
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 class STBTaxManagementView(APIView):

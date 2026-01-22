@@ -1,2 +1,0 @@
-bank_transaction_id,bank_operation_date,bank_amount,bank_ref,bank_payment_class,bank_label,customer_transaction_id,customer_accounting_date,customer_amount,customer_total_amount,customer_document_number,customer_external_doc_number,customer_payment_type,customer_description,score
-32812,2025-04-03,-40000.0,9958190138,CLT EFFET,REPRISE ESCOMPTE EFFET REJETE 310325 LCN 9958190138,19786,2025-04-03,-10000.0,-40000.0,BVC250000571,10287817866,CLT EFFET,Valider Impayé via escompte,83.75

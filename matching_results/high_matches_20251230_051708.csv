@@ -1,5 +1,0 @@
-bank_transaction_id,bank_operation_date,bank_amount,bank_ref,bank_payment_class,bank_label,customer_transaction_id,customer_accounting_date,customer_amount,customer_total_amount,customer_document_number,customer_external_doc_number,customer_payment_type,customer_description,score
-158930,2025-01-29,-28750.0,,CLT EFFET,EFF IMP DEF NO > IMPAYE DEF EFFET,92117,2025-01-21,-28750.0,-28750.0,BVC250000205,10155321395,CLT EFFET,Valider Impayé via escompte,75.0
-158935,2025-01-28,-28750.0,,CLT EFFET,EFF IMP DEF NO > IMPAYE DEF EFFET,92117,2025-01-21,-28750.0,-28750.0,BVC250000205,10155321395,CLT EFFET,Valider Impayé via escompte,75.0
-158940,2025-01-21,-28750.0,,CLT EFFET,EFF IMP DEF NO > IMPAYE DEF EFFET,92117,2025-01-21,-28750.0,-28750.0,BVC250000205,10155321395,CLT EFFET,Valider Impayé via escompte,83.75
-158948,2025-01-14,-28750.0,,CLT EFFET,EFF IMP DEF NO > IMPAYE DEF EFFET,92117,2025-01-21,-28750.0,-28750.0,BVC250000205,10155321395,CLT EFFET,Valider Impayé via escompte,75.0

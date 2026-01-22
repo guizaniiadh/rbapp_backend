@@ -853,6 +853,133 @@ class BTMatchCustomerBankTransactionsView(APIView):
             }, status=500)
 
 
+class BTManualMatchCustomerBankTransactionsView(APIView):
+    """
+    Manually link a RecoCustomerTransaction to a RecoBankTransaction for BT.
+
+    POST body:
+    {
+        "reco_bank_transaction_id": <int>,
+        "reco_customer_transaction_id": <int>
+    }
+
+    Effect:
+    - Sets RecoCustomerTransaction.matched_bank_transaction to the given RecoBankTransaction.
+    - Propagates the same matched bank transaction (and payment metadata) to all
+      RecoCustomerTransaction rows with the same document_number.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        try:
+            bank_tx_id = request.data.get("reco_bank_transaction_id")
+            cust_tx_id = request.data.get("reco_customer_transaction_id")
+
+            if bank_tx_id is None or cust_tx_id is None:
+                return Response(
+                    {
+                        "error": "reco_bank_transaction_id and reco_customer_transaction_id are required"
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            try:
+                bank_tx_id = int(bank_tx_id)
+                cust_tx_id = int(cust_tx_id)
+            except (TypeError, ValueError):
+                return Response(
+                    {
+                        "error": "reco_bank_transaction_id and reco_customer_transaction_id must be integers"
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            try:
+                bank_tx = RecoBankTransaction.objects.get(id=bank_tx_id)
+            except RecoBankTransaction.DoesNotExist:
+                return Response(
+                    {"error": f"RecoBankTransaction with id={bank_tx_id} not found"},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+            try:
+                cust_tx = RecoCustomerTransaction.objects.get(id=cust_tx_id)
+            except RecoCustomerTransaction.DoesNotExist:
+                return Response(
+                    {"error": f"RecoCustomerTransaction with id={cust_tx_id} not found"},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+            # Link selected customer transaction
+            cust_tx.matched_bank_transaction = bank_tx
+            cust_tx.save()
+
+            # Propagate to same-document customer transactions
+            propagated_count = 0
+            if cust_tx.document_number:
+                related_qs = RecoCustomerTransaction.objects.filter(
+                    document_number=cust_tx.document_number
+                ).exclude(id=cust_tx.id)
+
+                for related in related_qs:
+                    updated = False
+                    if related.matched_bank_transaction_id != bank_tx.id:
+                        related.matched_bank_transaction = bank_tx
+                        updated = True
+
+                    if bank_tx.payment_class and related.payment_type != bank_tx.payment_class.code:
+                        related.payment_type = bank_tx.payment_class.code
+                        updated = True
+                    if bank_tx.payment_status and related.payment_status_id != bank_tx.payment_status_id:
+                        related.payment_status = bank_tx.payment_status
+                        updated = True
+
+                    if updated:
+                        related.save()
+                        propagated_count += 1
+
+            logger.info(
+                f"BTManualMatchCustomerBankTransactionsView: matched customer_tx={cust_tx_id} to bank_tx={bank_tx_id}, "
+                f"propagated_to_same_document={propagated_count}"
+            )
+
+            return Response(
+                {
+                    "message": f"Successfully matched customer transaction {cust_tx_id} to bank transaction {bank_tx_id}",
+                    "reco_bank_transaction_id": bank_tx_id,
+                    "reco_customer_transaction_id": cust_tx_id,
+                    "propagated_to_same_document": propagated_count,
+                    "customer_transaction": {
+                        "id": cust_tx.id,
+                        "document_number": cust_tx.document_number,
+                        "matched_bank_transaction_id": cust_tx.matched_bank_transaction_id,
+                    },
+                    "bank_transaction": {
+                        "id": bank_tx.id,
+                        "bank_id": bank_tx.bank_id,
+                        "bank_ledger_entry_id": bank_tx.bank_ledger_entry_id,
+                        "internal_number": bank_tx.internal_number,
+                        "amount": float(bank_tx.amount),
+                    },
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        except Exception as e:
+            import traceback
+            error_details = traceback.format_exc()
+            logger.error(
+                f"BTManualMatchCustomerBankTransactionsView error: {str(e)}\n{error_details}"
+            )
+            return Response(
+                {
+                    "error": str(e),
+                    "details": error_details,
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
 class BTMatchTransactionView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
@@ -2692,6 +2819,60 @@ class BTGetMatchingResultsView(APIView):
 
 
 class BTTaxComparisonView(APIView):
+    def get(self, request):
+        """
+        GET endpoint to retrieve comparison data from the Comparison table.
+        Returns all comparison records with customer_tax (individual) and customer_total_tax (aggregated).
+        
+        Query parameters:
+        - customer_transaction_id: Filter by specific customer transaction ID
+        - tax_type: Filter by tax type (e.g., 'AGIOS', 'COM', etc.)
+        - status: Filter by comparison status ('matched', 'mismatch', 'missing')
+        """
+        try:
+            queryset = Comparison.objects.select_related('customer_transaction').all()
+            
+            # Apply filters
+            customer_transaction_id = request.query_params.get('customer_transaction_id')
+            if customer_transaction_id:
+                queryset = queryset.filter(customer_transaction_id=customer_transaction_id)
+            
+            tax_type = request.query_params.get('tax_type')
+            if tax_type:
+                queryset = queryset.filter(tax_type__iexact=tax_type)
+            
+            status_filter = request.query_params.get('status')
+            if status_filter:
+                queryset = queryset.filter(status__iexact=status_filter)
+            
+            results = []
+            for comp in queryset:
+                results.append({
+                    'id': comp.id,
+                    'customer_transaction_id': comp.customer_transaction_id,
+                    'matched_bank_transaction_id': comp.matched_bank_transaction_id,
+                    'tax_type': comp.tax_type,
+                    'customer_tax': format(comp.customer_tax, '.3f') if comp.customer_tax is not None else None,  # Individual tax amount
+                    'bank_tax': format(comp.bank_tax, '.3f') if comp.bank_tax is not None else None,
+                    'status': comp.status,
+                    'difference': format(comp.difference, '.3f') if comp.difference is not None else None,
+                    'customer_total_tax': format(comp.customer_total_tax, '.3f') if comp.customer_total_tax is not None else None,  # Aggregated total tax amount
+                })
+            
+            return Response({
+                'count': len(results),
+                'results': results
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            import traceback
+            error_details = traceback.format_exc()
+            logger.error(f"BTTaxComparisonView.get error: {str(e)}\n{error_details}")
+            return Response({
+                'error': str(e),
+                'details': error_details
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
     def put(self, request):
         """
         For each row in the Comparison table, set customer_total_tax to the sum of tax_amount for all CustomerTaxRow entries with transaction_id == customer_transaction_id.
@@ -2788,6 +2969,10 @@ class BTTaxComparisonView(APIView):
                 abs_cust_val = abs(Decimal(str(customer_tax_for_comparison))).quantize(Decimal('0.001'), rounding=ROUND_HALF_UP)
                 abs_bank_val = abs(Decimal(str(bank_tax or 0))).quantize(Decimal('0.001'), rounding=ROUND_HALF_UP)
                 
+                # Calculate difference (customer - bank) using absolute values to match status calculation
+                # This ensures consistent comparison regardless of sign of original values
+                difference_val = abs_cust_val - abs_bank_val
+                
                 if abs_cust_val == abs_bank_val and abs_cust_val != Decimal('0.000'):
                     status_str = 'matched'
                 elif abs_cust_val == Decimal('0.000') and abs_bank_val == Decimal('0.000'):
@@ -2808,6 +2993,7 @@ class BTTaxComparisonView(APIView):
                         'customer_tax': abs_cust_individual,  # Individual tax_amount for this transaction
                         'bank_tax': abs_bank_val,
                         'status': status_str,
+                        'difference': difference_val,
                         'customer_total_tax': row.total_tax_amount,  # Aggregated total_tax_amount
                         'matched_bank_transaction_id': getattr(bank_tx, 'id', None),
                     }
@@ -2820,10 +3006,11 @@ class BTTaxComparisonView(APIView):
                     'matched_bank_transaction_id': getattr(bank_tx, 'id', None),
                     'internal_number': getattr(bank_tx, 'internal_number', None),
                     'tax_type': tax_type,
-                    'customer_tax': format(abs_cust_val, '.3f'),
+                    'customer_tax': format(abs_cust_individual, '.3f'),  # Individual tax amount for this transaction
                     'bank_tax': format(abs_bank_val, '.3f'),
                     'status': status_str,
-                    'customer_total_tax': format(row.total_tax_amount, '.3f') if row.total_tax_amount is not None else None,
+                    'difference': format(difference_val, '.3f'),
+                    'customer_total_tax': format(row.total_tax_amount, '.3f') if row.total_tax_amount is not None else None,  # Aggregated total tax amount
                 })
                 count += 1
         return Response({
@@ -2850,6 +3037,200 @@ class BTTaxComparisonView(APIView):
             'deleted_count': count,
             'method': 'TRUNCATE' if count > 0 else 'N/A'
         }, status=status.HTTP_200_OK)
+
+
+class BTSumMatchedBankTransactionsView(APIView):
+    """
+    GET endpoint to calculate the sum of amounts for all matched RecoBankTransactions.
+    
+    A RecoBankTransaction is considered "matched" if it has at least one 
+    RecoCustomerTransaction that references it via matched_bank_transaction.
+    
+    Returns:
+    - total_sum: Sum of amounts for all matched bank transactions
+    - count: Number of matched bank transactions
+    - transactions: List of matched transactions with their details (optional, if detail=true)
+    
+    Query parameters:
+    - detail: If true, returns list of matched transactions with details
+    - bank_id: Optional filter by bank ID
+    - type: Optional filter by transaction type (e.g., 'origine', 'agios', 'COM', etc.)
+    """
+    
+    def get(self, request):
+        try:
+            # Get matched RecoBankTransactions (those that have at least one matched customer transaction)
+            matched_bank_transactions = RecoBankTransaction.objects.filter(
+                matched_reco_customer_transactions__isnull=False
+            ).distinct()
+            
+            # Apply optional filters
+            bank_id = request.query_params.get('bank_id')
+            if bank_id:
+                matched_bank_transactions = matched_bank_transactions.filter(bank_id=bank_id)
+            
+            transaction_type = request.query_params.get('type')
+            if transaction_type:
+                matched_bank_transactions = matched_bank_transactions.filter(type__iexact=transaction_type)
+            
+            # Calculate sum of amounts
+            total_sum = matched_bank_transactions.aggregate(
+                total=Sum('amount')
+            )['total'] or Decimal('0.000')
+            
+            # Count matched transactions
+            count = matched_bank_transactions.count()
+            
+            # Build response
+            response_data = {
+                'total_sum': format(total_sum, '.3f'),
+                'total_sum_decimal': float(total_sum),
+                'count': count,
+                'message': f'Sum of {count} matched bank transactions: {format(total_sum, ".3f")}'
+            }
+            
+            # Include detailed transaction list if requested
+            detail = request.query_params.get('detail', '').lower() == 'true'
+            if detail:
+                transactions = []
+                for tx in matched_bank_transactions.select_related('bank').order_by('-id')[:100]:  # Limit to 100 for performance
+                    # Count how many customer transactions are matched to this bank transaction
+                    customer_count = tx.matched_reco_customer_transactions.count()
+                    
+                    transactions.append({
+                        'id': tx.id,
+                        'bank_id': tx.bank_id,
+                        'bank_name': tx.bank.name if tx.bank else None,
+                        'operation_date': tx.operation_date.isoformat() if tx.operation_date else None,
+                        'label': tx.label,
+                        'amount': format(tx.amount, '.3f'),
+                        'type': tx.type,
+                        'internal_number': tx.internal_number,
+                        'matched_customer_count': customer_count,
+                    })
+                
+                response_data['transactions'] = transactions
+                response_data['transactions_returned'] = len(transactions)
+                if count > 100:
+                    response_data['message'] += f' (showing first 100 of {count} transactions)'
+            
+            return Response(response_data, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            import traceback
+            error_details = traceback.format_exc()
+            logger.error(f"BTSumMatchedBankTransactionsView.get error: {str(e)}\n{error_details}")
+            return Response({
+                'error': str(e),
+                'details': error_details
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class BTAssignInternalNumberView(APIView):
+    """
+    POST endpoint to assign the same internal_number to multiple bank transactions.
+    Accepts a list of bank transaction IDs and an internal_number.
+    Works with both origine (type='origine') and non-origine transactions.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def post(self, request):
+        try:
+            bank_transaction_ids = request.data.get('bank_transaction_ids', [])
+            internal_number = request.data.get('internal_number')
+            
+            # Validate input
+            if not bank_transaction_ids:
+                return Response(
+                    {"error": "bank_transaction_ids is required and must be a non-empty list"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            if not isinstance(bank_transaction_ids, list):
+                return Response(
+                    {"error": "bank_transaction_ids must be a list"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            if not internal_number:
+                return Response(
+                    {"error": "internal_number is required"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            if not isinstance(internal_number, str) or not internal_number.strip():
+                return Response(
+                    {"error": "internal_number must be a non-empty string"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Clean the internal_number
+            internal_number = internal_number.strip()
+            
+            # Get all requested transactions
+            transactions = RecoBankTransaction.objects.filter(id__in=bank_transaction_ids)
+            found_ids = list(transactions.values_list('id', flat=True))
+            
+            # Check if all IDs exist
+            missing_ids = set(bank_transaction_ids) - set(found_ids)
+            if missing_ids:
+                return Response(
+                    {
+                        "error": f"Some transaction IDs not found: {list(missing_ids)}",
+                        "found_ids": found_ids,
+                        "missing_ids": list(missing_ids)
+                    },
+                    status=status.HTTP_404_NOT_FOUND
+                )
+            
+            # Count origine and non-origine transactions before update
+            origine_count = transactions.filter(type='origine').count()
+            non_origine_count = transactions.exclude(type='origine').count()
+            
+            # Update all transactions with the same internal_number
+            updated_count = transactions.update(internal_number=internal_number)
+            
+            # Log the update
+            logger.info(
+                f"BTAssignInternalNumberView: Assigned internal_number '{internal_number}' to {updated_count} transactions. "
+                f"Origine: {origine_count}, Non-origine: {non_origine_count}"
+            )
+            
+            # Refetch updated transactions to get latest data
+            updated_transactions_list = list(RecoBankTransaction.objects.filter(id__in=found_ids).values(
+                'id', 'type', 'label', 'amount', 'internal_number'
+            ))
+            
+            # Prepare response with details
+            updated_transactions = []
+            for tx_data in updated_transactions_list:
+                updated_transactions.append({
+                    'id': tx_data['id'],
+                    'type': tx_data['type'],
+                    'label': tx_data['label'],
+                    'amount': float(tx_data['amount']),
+                    'internal_number': tx_data['internal_number'],
+                    'is_origine': tx_data['type'] == 'origine'
+                })
+            
+            return Response({
+                'message': f"Successfully assigned internal_number '{internal_number}' to {updated_count} transactions",
+                'updated_count': updated_count,
+                'internal_number': internal_number,
+                'updated_transaction_ids': found_ids,
+                'origine_count': origine_count,
+                'non_origine_count': non_origine_count,
+                'transactions': updated_transactions
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            import traceback
+            error_details = traceback.format_exc()
+            logger.error(f"BTAssignInternalNumberView error: {str(e)}\n{error_details}")
+            return Response({
+                'error': str(e),
+                'details': error_details
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 class BTTaxManagementView(APIView):

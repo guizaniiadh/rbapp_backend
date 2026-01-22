@@ -234,46 +234,49 @@ class BankLedgerEntryViewSet(viewsets.ModelViewSet):
                 "error": "Bank code is required. Provide it in the URL path (e.g., /api/1/bank-ledger-entries/{id}/preprocess/) or as a query parameter (bank_code=1)."
             }, status=status.HTTP_400_BAD_REQUEST)
         
-        # Map bank code to prefix
-        BANK_CODE_TO_PREFIX = {
-            '1': 'BT',
-            '2': 'Zitouna',
-            '4': 'STB',
-        }
+        # Get bank code to prefix mapping dynamically from database
+        from rbapp.bank_url_router import get_bank_code_to_prefix, get_bank_view_class
         
+        BANK_CODE_TO_PREFIX = get_bank_code_to_prefix()
         prefix = BANK_CODE_TO_PREFIX.get(bank_code)
+        
         if not prefix:
             return Response({
-                "error": f"Unsupported bank code: {bank_code}"
+                "error": f"Unsupported bank code: {bank_code}. Bank not found in database."
             }, status=status.HTTP_400_BAD_REQUEST)
         
-        # Import and call the bank-specific view
+        # Dynamically get the bank-specific view class
         try:
-            if prefix == 'BT':
-                from rbapp.views.banks.bt import BTPreprocessBankLedgerEntryView
-                view = BTPreprocessBankLedgerEntryView()
-            elif prefix == 'STB':
-                from rbapp.views.banks.stb import STBPreprocessBankLedgerEntryView
-                view = STBPreprocessBankLedgerEntryView()
-            elif prefix == 'Zitouna':
-                # Try to import Zitouna view, fall back to BT if not available
-                try:
-                    from rbapp.views.banks.attijari import ZitounaPreprocessBankLedgerEntryView
-                    view = ZitounaPreprocessBankLedgerEntryView()
-                except ImportError:
-                    # Fallback to BT view for Zitouna if specific view doesn't exist
-                    from rbapp.views.banks.bt import BTPreprocessBankLedgerEntryView
-                    view = BTPreprocessBankLedgerEntryView()
-            else:
+            view_class = get_bank_view_class(prefix, 'PreprocessBankLedgerEntryView')
+            
+            if not view_class:
+                # Fallback: try to find a fallback view (STB or BT)
+                # Try STB first as fallback
+                stb_view = get_bank_view_class('STB', 'PreprocessBankLedgerEntryView')
+                if stb_view:
+                    view_class = stb_view
+                else:
+                    # Try BT as last resort fallback
+                    bt_view = get_bank_view_class('BT', 'PreprocessBankLedgerEntryView')
+                    if bt_view:
+                        view_class = bt_view
+            
+            if not view_class:
                 return Response({
-                    "error": f"No preprocessing view found for bank code: {bank_code}"
+                    "error": f"No preprocessing view found for bank code: {bank_code} (prefix: {prefix})"
                 }, status=status.HTTP_404_NOT_FOUND)
             
-            # Call the bank-specific view's post method
+            # Instantiate and call the bank-specific view's post method
+            view = view_class()
             return view.post(request, pk)
+            
         except ImportError as e:
             return Response({
                 "error": f"Could not import bank-specific view: {str(e)}"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        except Exception as e:
+            return Response({
+                "error": f"Error processing bank ledger entry: {str(e)}"
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     def perform_create(self, serializer):
@@ -331,46 +334,49 @@ class CustomerLedgerEntryViewSet(viewsets.ModelViewSet):
                 "error": "Bank code is required. Provide it in the URL path (e.g., /api/1/customer-ledger-entries/{id}/preprocess/) or as a query parameter (bank_code=1)."
             }, status=status.HTTP_400_BAD_REQUEST)
         
-        # Map bank code to prefix
-        BANK_CODE_TO_PREFIX = {
-            '1': 'BT',
-            '2': 'Zitouna',
-            '4': 'STB',
-        }
+        # Get bank code to prefix mapping dynamically from database
+        from rbapp.bank_url_router import get_bank_code_to_prefix, get_bank_view_class
         
+        BANK_CODE_TO_PREFIX = get_bank_code_to_prefix()
         prefix = BANK_CODE_TO_PREFIX.get(bank_code)
+        
         if not prefix:
             return Response({
-                "error": f"Unsupported bank code: {bank_code}"
+                "error": f"Unsupported bank code: {bank_code}. Bank not found in database."
             }, status=status.HTTP_400_BAD_REQUEST)
         
-        # Import and call the bank-specific view
+        # Dynamically get the bank-specific view class
         try:
-            if prefix == 'BT':
-                from rbapp.views.banks.bt import BTPreprocessCustomerLedgerEntryView
-                view = BTPreprocessCustomerLedgerEntryView()
-            elif prefix == 'STB':
-                from rbapp.views.banks.stb import STBPreprocessCustomerLedgerEntryView
-                view = STBPreprocessCustomerLedgerEntryView()
-            elif prefix == 'Zitouna':
-                # Try to import Zitouna view, fall back to BT if not available
-                try:
-                    from rbapp.views.banks.attijari import ZitounaPreprocessCustomerLedgerEntryView
-                    view = ZitounaPreprocessCustomerLedgerEntryView()
-                except ImportError:
-                    # Fallback to BT view for Zitouna if specific view doesn't exist
-                    from rbapp.views.banks.bt import BTPreprocessCustomerLedgerEntryView
-                    view = BTPreprocessCustomerLedgerEntryView()
-            else:
+            view_class = get_bank_view_class(prefix, 'PreprocessCustomerLedgerEntryView')
+            
+            if not view_class:
+                # Fallback: try to find a fallback view (STB or BT)
+                # Try STB first as fallback
+                stb_view = get_bank_view_class('STB', 'PreprocessCustomerLedgerEntryView')
+                if stb_view:
+                    view_class = stb_view
+                else:
+                    # Try BT as last resort fallback
+                    bt_view = get_bank_view_class('BT', 'PreprocessCustomerLedgerEntryView')
+                    if bt_view:
+                        view_class = bt_view
+            
+            if not view_class:
                 return Response({
-                    "error": f"No preprocessing view found for bank code: {bank_code}"
+                    "error": f"No preprocessing view found for bank code: {bank_code} (prefix: {prefix})"
                 }, status=status.HTTP_404_NOT_FOUND)
             
-            # Call the bank-specific view's post method
+            # Instantiate and call the bank-specific view's post method
+            view = view_class()
             return view.post(request, pk)
+            
         except ImportError as e:
             return Response({
                 "error": f"Could not import bank-specific view: {str(e)}"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        except Exception as e:
+            return Response({
+                "error": f"Error processing customer ledger entry: {str(e)}"
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     def perform_create(self, serializer):

@@ -13,6 +13,7 @@ VIEW_TO_URL_SLUG = {
     'PreprocessBankLedgerEntryView': 'preprocess-bank-ledger-entry',
     'ExtractBeginningBalanceView': 'extract-beginning-balance',
     'MatchCustomerBankTransactionsView': 'match-customer-bank-transactions',
+    'ManualMatchCustomerBankTransactionsView': 'manual-match-customer-bank-transactions',
     'MatchTransactionView': 'match-transaction',
     'MatchBankTransactionTaxesView': 'match-bank-transaction-taxes',
     'ExtractCustomerTaxesView': 'extract-customer-taxes',
@@ -23,6 +24,8 @@ VIEW_TO_URL_SLUG = {
     'MatchTaxView': 'match-tax',
     'UnmatchedTransactionsView': 'unmatched-transactions',
     'SortedRecoBankTransactionsView': 'sorted-transactions',
+    'AssignInternalNumberView': 'assign-internal-number',
+    'SumMatchedBankTransactionsView': 'sum-matched-bank-transactions',
 }
 
 # Fallback mapping for known banks (used only when database is unavailable during initialization)

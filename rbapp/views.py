@@ -1,10 +1,10 @@
 
 from decimal import Decimal, ROUND_HALF_UP
-from .models import Comparison
+from .models import Comparison, RecoBankTransaction, RecoCustomerTransaction
 # API to compare customer and bank taxes for matched transactions and populate the Comparison table
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework import status
+from rest_framework import status, permissions
 
 class TaxComparisonView(APIView):
     def put(self, request):
@@ -2574,6 +2574,127 @@ class MatchCustomerBankTransactionsView(APIView):
                 "error": str(e),
                 "details": error_details
             }, status=500)
+
+
+class ManualMatchRecoCustomerBankTransactionView(APIView):
+    """
+    Manually link a RecoCustomerTransaction to a RecoBankTransaction.
+
+    POST body:
+    {
+        "reco_bank_transaction_id": <int>,
+        "reco_customer_transaction_id": <int>
+    }
+
+    Effect:
+    - Sets RecoCustomerTransaction.matched_bank_transaction to the given RecoBankTransaction.
+    - Optionally, propagates the same matched bank transaction (and payment metadata) to all
+      RecoCustomerTransaction rows with the same document_number as the selected one.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        try:
+            bank_tx_id = request.data.get("reco_bank_transaction_id")
+            cust_tx_id = request.data.get("reco_customer_transaction_id")
+
+            # Basic validation
+            if bank_tx_id is None or cust_tx_id is None:
+                return Response(
+                    {
+                        "error": "reco_bank_transaction_id and reco_customer_transaction_id are required"
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            try:
+                bank_tx_id = int(bank_tx_id)
+                cust_tx_id = int(cust_tx_id)
+            except (TypeError, ValueError):
+                return Response(
+                    {
+                        "error": "reco_bank_transaction_id and reco_customer_transaction_id must be integers"
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # Fetch objects
+            try:
+                bank_tx = RecoBankTransaction.objects.get(id=bank_tx_id)
+            except RecoBankTransaction.DoesNotExist:
+                return Response(
+                    {"error": f"RecoBankTransaction with id={bank_tx_id} not found"},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+            try:
+                cust_tx = RecoCustomerTransaction.objects.get(id=cust_tx_id)
+            except RecoCustomerTransaction.DoesNotExist:
+                return Response(
+                    {"error": f"RecoCustomerTransaction with id={cust_tx_id} not found"},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+            # Link the selected customer transaction to the bank transaction
+            cust_tx.matched_bank_transaction = bank_tx
+            cust_tx.save()
+
+            # Propagate to all customer transactions with the same document_number (if any)
+            propagated_count = 0
+            if cust_tx.document_number:
+                related_qs = RecoCustomerTransaction.objects.filter(
+                    document_number=cust_tx.document_number
+                ).exclude(id=cust_tx.id)
+
+                for related in related_qs:
+                    updated = False
+                    if related.matched_bank_transaction_id != bank_tx.id:
+                        related.matched_bank_transaction = bank_tx
+                        updated = True
+
+                    # Optionally propagate payment_type and payment_status from bank transaction
+                    if bank_tx.payment_class and related.payment_type != bank_tx.payment_class.code:
+                        related.payment_type = bank_tx.payment_class.code
+                        updated = True
+                    if bank_tx.payment_status and related.payment_status_id != bank_tx.payment_status_id:
+                        related.payment_status = bank_tx.payment_status
+                        updated = True
+
+                    if updated:
+                        related.save()
+                        propagated_count += 1
+
+            response_data = {
+                "message": f"Successfully matched customer transaction {cust_tx_id} to bank transaction {bank_tx_id}",
+                "reco_bank_transaction_id": bank_tx_id,
+                "reco_customer_transaction_id": cust_tx_id,
+                "propagated_to_same_document": propagated_count,
+                "customer_transaction": {
+                    "id": cust_tx.id,
+                    "document_number": cust_tx.document_number,
+                    "matched_bank_transaction_id": cust_tx.matched_bank_transaction_id,
+                },
+                "bank_transaction": {
+                    "id": bank_tx.id,
+                    "bank_id": bank_tx.bank_id,
+                    "bank_ledger_entry_id": bank_tx.bank_ledger_entry_id,
+                    "internal_number": bank_tx.internal_number,
+                    "amount": float(bank_tx.amount),
+                },
+            }
+
+            return Response(response_data, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            import traceback
+            error_details = traceback.format_exc()
+            return Response(
+                {
+                    "error": str(e),
+                    "details": error_details,
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
 
 class MatchCustomerBankTransactionsView1(APIView):

@@ -8,6 +8,7 @@ class Comparison(models.Model):
     customer_tax = models.DecimalField(max_digits=20, decimal_places=3, null=True, blank=True)
     bank_tax = models.DecimalField(max_digits=20, decimal_places=3, null=True, blank=True)
     status = models.CharField(max_length=50)
+    difference = models.DecimalField(max_digits=20, decimal_places=3, null=True, blank=True, help_text="Difference between customer and bank values (customer - bank)")
     customer_total_tax = models.DecimalField(max_digits=20, decimal_places=3, null=True, blank=True)
     matched_bank_transaction_id = models.IntegerField(null=True, blank=True, help_text="Bank transaction ID used for comparison")
 

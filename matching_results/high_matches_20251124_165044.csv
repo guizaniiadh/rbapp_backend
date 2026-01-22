@@ -1,4 +1,0 @@
-bank_transaction_id,bank_operation_date,bank_amount,bank_ref,bank_payment_class,bank_label,customer_transaction_id,customer_accounting_date,customer_amount,customer_total_amount,customer_document_number,customer_external_doc_number,customer_payment_type,customer_description,score
-73613,2025-10-10,235643.39,,CLT EFFET,REMISE EFFETS/ESCOMPTE AGENCE REMISE EFFETS/ESCOMPTE AGENCE,46846,2025-10-10,21468.81,235643.39,BEB24000447,11037982789,CLT EFFET,Validation Effet escompté en Banque,83.75
-73617,2025-10-10,-233310.659,,FRS EFFET,PAYEMENT EFFET 0,46845,2025-10-10,-233310.659,-233310.659,EFB250000726,10155492212,FRS EFFET,Paiement Traite Fournisseur,83.75
-73621,2025-10-10,-45921.508,,FRS EFFET,PAYEMENT EFFET 0,46844,2025-10-10,-45921.508,-45921.508,EFB250000725,10155495510,FRS EFFET,Paiement Traite Fournisseur,83.75

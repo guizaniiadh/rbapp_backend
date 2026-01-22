@@ -1,3 +1,0 @@
-bank_transaction_id,bank_operation_date,bank_amount,bank_ref,bank_payment_class,bank_label,customer_transaction_id,customer_accounting_date,customer_amount,customer_total_amount,customer_document_number,customer_external_doc_number,customer_payment_type,customer_description,score
-166480,2025-01-29,-350.0,264185,FRS CHQ,RETRAIT CHEQUE TND,,,,,,,,,-1.0
-166481,2025-01-20,168255.582,880183,CLT EFFET,ACCORD ESCOMPTE > ACCORD ESCOMPTE,117187.0,2025-01-02,-26196.409,-52392.818,BVC250000136,10155347585,CLT EFFET,Valider Impayé via escompte,0.0
